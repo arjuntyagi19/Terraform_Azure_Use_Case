@@ -1,3 +1,5 @@
+
+#test comment
 # Configure the Azure provider
 terraform {
   required_providers {
@@ -16,7 +18,7 @@ provider "azurerm" {
 
 resource "azurerm_resource_group" "rg" {
   name     = "myTFResourceGroup"
-  location = "westus2"
+  location = "westeurope"
 }
 
 resource "azurerm_storage_account" "storage" {
