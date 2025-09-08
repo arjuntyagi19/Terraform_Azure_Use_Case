@@ -1,11 +1,9 @@
 variable "location" {
-  type    = string
-  default = "East US"
+  type = string
 }
 
 variable "resource_group_name" {
-  type    = string
-  default = "rg-weather-project"
+  type = string
 }
 
 variable "sql_admin_password" {
