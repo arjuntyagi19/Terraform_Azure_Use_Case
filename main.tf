@@ -40,7 +40,7 @@ resource "azurerm_storage_account" "datalake" {
 resource "azurerm_storage_container" "containers" {
   for_each              = toset(var.containers)
   name                  = each.value
-  storage_account_id    = azurerm_storage_account.datalake.id
+  storage_account_name  = azurerm_storage_account.datalake.name
   container_access_type = "private"
 }
 
@@ -57,15 +57,11 @@ resource "azurerm_data_factory_pipeline" "pipelines" {
   for_each        = var.pipelines
   name            = each.key
   data_factory_id = azurerm_data_factory.df.id
-
-  # Load activities JSON from file
   activities_json = file(each.value)
-
- 
 }
 
 # --------------------------------------------------
-# Databricks Workspace + Cluster (Dynamic Config)
+# Databricks Workspace + Cluster (Dynamic)
 # --------------------------------------------------
 resource "azurerm_databricks_workspace" "dbw" {
   name                = var.databricks_workspace_name
@@ -87,9 +83,9 @@ resource "databricks_cluster" "this" {
 }
 
 # --------------------------------------------------
-# Azure SQL Database (Dynamic Number)
+# Azure SQL (MSSQL Server + DBs)
 # --------------------------------------------------
-resource "azurerm_sql_server" "sql" {
+resource "azurerm_mssql_server" "sql" {
   name                         = var.sql_server_name
   resource_group_name          = azurerm_resource_group.rg.name
   location                     = azurerm_resource_group.rg.location
@@ -98,13 +94,12 @@ resource "azurerm_sql_server" "sql" {
   administrator_login_password = var.sql_admin_password
 }
 
-resource "azurerm_sql_database" "dbs" {
-  for_each            = var.sql_databases
-  name                = each.key
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  server_name         = azurerm_sql_server.sql.name
-  sku_name            = each.value
+resource "azurerm_mssql_database" "dbs" {
+  for_each       = var.sql_databases
+  name           = each.key
+  server_id      = azurerm_mssql_server.sql.id
+  sku_name       = each.value       # e.g., "S0"
+  max_size_gb    = 5                # optional, static for now
 }
 
 # --------------------------------------------------
