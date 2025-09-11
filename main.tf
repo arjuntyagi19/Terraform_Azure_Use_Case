@@ -1,127 +1,120 @@
+terraform {
+  required_version = ">=1.5.0"
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~>3.0"
+    }
+    databricks = {
+      source  = "databricks/databricks"
+      version = "~>1.0"
+    }
+  }
+}
+
 provider "azurerm" {
   features {}
 }
 
-data "azurerm_client_config" "current" {}
-
+# --------------------------------------------------
 # Resource Group
-resource "azurerm_resource_group" "main" {
+# --------------------------------------------------
+resource "azurerm_resource_group" "rg" {
   name     = var.resource_group_name
   location = var.location
 }
 
-# Storage Account
+# --------------------------------------------------
+# Storage Account + Containers (Dynamic)
+# --------------------------------------------------
 resource "azurerm_storage_account" "datalake" {
-  name                     = "weatherstorage01"
-  location                 = var.location
-  resource_group_name      = var.resource_group_name
+  name                     = var.storage_account_name
+  resource_group_name      = azurerm_resource_group.rg.name
+  location                 = azurerm_resource_group.rg.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
   is_hns_enabled           = true
 }
 
-resource "azurerm_storage_container" "raw" {
-  name                  = "raw"
-  storage_account_name  = azurerm_storage_account.datalake.name
+resource "azurerm_storage_container" "containers" {
+  for_each              = toset(var.containers)
+  name                  = each.value
+  storage_account_id    = azurerm_storage_account.datalake.id
   container_access_type = "private"
 }
 
-resource "azurerm_storage_container" "transform" {
-  name                  = "transform"
-  storage_account_name  = azurerm_storage_account.datalake.name
-  container_access_type = "private"
+# --------------------------------------------------
+# Azure Data Factory + Pipelines (Dynamic)
+# --------------------------------------------------
+resource "azurerm_data_factory" "df" {
+  name                = var.data_factory_name
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
 }
 
-resource "azurerm_storage_container" "curate" {
-  name                  = "curate"
-  storage_account_name  = azurerm_storage_account.datalake.name
-  container_access_type = "private"
+resource "azurerm_data_factory_pipeline" "pipelines" {
+  for_each        = var.pipelines
+  name            = each.key
+  data_factory_id = azurerm_data_factory.df.id
+
+  # Load activities JSON from file
+  activities_json = file(each.value)
+
+ 
 }
 
-resource "azurerm_storage_container" "dropzone" {
-  name                  = "dropzone"
-  storage_account_name  = azurerm_storage_account.datalake.name
-  container_access_type = "private"
+# --------------------------------------------------
+# Databricks Workspace + Cluster (Dynamic Config)
+# --------------------------------------------------
+resource "azurerm_databricks_workspace" "dbw" {
+  name                = var.databricks_workspace_name
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  sku                 = var.databricks_sku
 }
 
-# Key Vault
-resource "azurerm_key_vault" "main" {
-  name                        = "kv-weather"
-  location                    = var.location
-  resource_group_name         = var.resource_group_name
-  tenant_id                   = data.azurerm_client_config.current.tenant_id
-  sku_name                    = "standard"
-  purge_protection_enabled    = true
+provider "databricks" {
+  azure_workspace_resource_id = azurerm_databricks_workspace.dbw.id
 }
 
-resource "azurerm_key_vault_secret" "api_key" {
-  name         = "weather-api-key"
-  value        = var.weather_api_key
-  key_vault_id = azurerm_key_vault.main.id
+resource "databricks_cluster" "this" {
+  cluster_name            = "${var.databricks_workspace_name}-cluster"
+  spark_version           = "13.3.x-scala2.12"
+  node_type_id            = var.databricks_cluster.node_type_id
+  autotermination_minutes = var.databricks_cluster.autotermination_minutes
+  num_workers             = var.databricks_cluster.num_workers
 }
 
-# Data Factory
-resource "azurerm_data_factory" "main" {
-  name                = "adf-weather"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  identity {
-    type = "SystemAssigned"
-  }
-}
-
-# SQL Server & DB
-resource "azurerm_mssql_server" "main" {
-  name                         = "weather-sql-server"
-  location                     = var.location
-  resource_group_name          = var.resource_group_name
+# --------------------------------------------------
+# Azure SQL Database (Dynamic Number)
+# --------------------------------------------------
+resource "azurerm_sql_server" "sql" {
+  name                         = var.sql_server_name
+  resource_group_name          = azurerm_resource_group.rg.name
+  location                     = azurerm_resource_group.rg.location
   version                      = "12.0"
-  administrator_login          = "sqladminuser"
+  administrator_login          = var.sql_admin_login
   administrator_login_password = var.sql_admin_password
 }
 
-resource "azurerm_mssql_database" "metadata" {
-  name           = "metadata"
-  server_id      = azurerm_mssql_server.main.id
-  sku_name       = "S0"
-  max_size_gb    = 5
-  zone_redundant = false
+resource "azurerm_sql_database" "dbs" {
+  for_each            = var.sql_databases
+  name                = each.key
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  server_name         = azurerm_sql_server.sql.name
+  sku_name            = each.value
 }
 
-# Databricks Workspace
-resource "azurerm_databricks_workspace" "main" {
-  name                = "dbx-weather"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  sku                 = "standard"
+# --------------------------------------------------
+# Role Assignments (Dynamic)
+# --------------------------------------------------
+data "azurerm_client_config" "current" {}
 
-  tags = {
-    env     = "dev"
-    project = "weather"
-  }
-}
-
-# Role Assignments
-resource "azurerm_role_assignment" "adf_storage" {
-  principal_id         = azurerm_data_factory.main.identity[0].principal_id
-  role_definition_name = "Storage Blob Data Contributor"
-  scope                = azurerm_storage_account.datalake.id
-}
-
-resource "azurerm_role_assignment" "adf_kv" {
-  principal_id         = azurerm_data_factory.main.identity[0].principal_id
-  role_definition_name = "Key Vault Secrets User"
-  scope                = azurerm_key_vault.main.id
-}
-
-resource "azurerm_role_assignment" "dbx_storage" {
-  principal_id         = azurerm_databricks_workspace.main.managed_identity.principal_id
-  role_definition_name = "Storage Blob Data Contributor"
-  scope                = azurerm_storage_account.datalake.id
-}
-
-resource "azurerm_role_assignment" "dbx_kv" {
-  principal_id         = azurerm_databricks_workspace.main.managed_identity.principal_id
-  role_definition_name = "Key Vault Secrets User"
-  scope                = azurerm_key_vault.main.id
+resource "azurerm_role_assignment" "assignments" {
+  for_each             = var.role_assignments
+  scope                = azurerm_resource_group.rg.id
+  role_definition_name = each.value
+  principal_id         = each.key
 }
