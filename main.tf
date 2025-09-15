@@ -63,29 +63,29 @@ resource "azurerm_data_factory_pipeline" "pipelines" {
 # --------------------------------------------------
 # Databricks Workspace + Cluster (Dynamic)
 # --------------------------------------------------
-resource "azurerm_databricks_workspace" "dbw" {
+/*resource "azurerm_databricks_workspace" "dbw" {
   name                = var.databricks_workspace_name
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
   sku                 = var.databricks_sku
-}
+}*/
 
-provider "databricks" {
+/*provider "databricks" {
   azure_workspace_resource_id = azurerm_databricks_workspace.dbw.id
-}
+}*/
 
-resource "databricks_cluster" "this" {
+/*resource "databricks_cluster" "this" {
   cluster_name            = "${var.databricks_workspace_name}-cluster"
   spark_version           = "13.3.x-scala2.12"
   node_type_id            = var.databricks_cluster.node_type_id
   autotermination_minutes = var.databricks_cluster.autotermination_minutes
   num_workers             = var.databricks_cluster.num_workers
-}
+} */
 
 # --------------------------------------------------
 # Azure SQL (MSSQL Server + DBs)
 # --------------------------------------------------
-resource "azurerm_mssql_server" "sql" {
+/*resource "azurerm_mssql_server" "sql" {
   name                         = var.sql_server_name
   resource_group_name          = azurerm_resource_group.rg.name
   location                     = azurerm_resource_group.rg.location
@@ -112,4 +112,4 @@ resource "azurerm_role_assignment" "assignments" {
   scope                = azurerm_resource_group.rg.id
   role_definition_name = each.value
   principal_id         = each.key
-}
+}*/
